@@ -2,15 +2,16 @@
 
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { authClient } from "@/lib/auth-client"
+import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Cloud, LogOut } from "lucide-react"
 
 export function DashboardHeader({ name, email }: { name: string; email: string }) {
   const router = useRouter()
+  const supabase = createClient()
 
   const handleSignOut = async () => {
-    await authClient.signOut()
+    await supabase.auth.signOut()
     router.push("/")
     router.refresh()
   }

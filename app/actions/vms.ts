@@ -1,10 +1,9 @@
 "use server"
 
-import { auth } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/server"
 import { db } from "@/lib/db"
 import { bots } from "@/lib/db/schema"
 import { and, eq } from "drizzle-orm"
-import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import {
   createVM,
@@ -16,9 +15,10 @@ import {
 } from "@/lib/gcp"
 
 async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error("Unauthorized")
-  return session.user.id
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error("Unauthorized")
+  return user.id
 }
 
 export async function deployBot(botId: number) {
@@ -30,7 +30,6 @@ export async function deployBot(botId: number) {
   const bot = rows[0]
   if (!bot) throw new Error("Bot introuvable")
 
-  // Mark as provisioning
   await db
     .update(bots)
     .set({ status: "provisioning", updatedAt: new Date() })
@@ -40,12 +39,10 @@ export async function deployBot(botId: number) {
   try {
     const instanceName = `snowbot-${bot.name.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40)}`
 
-    // If there's an existing instance, delete it first
     if (bot.gcpInstanceName) {
       await deleteVM(bot.gcpInstanceName).catch(() => {})
     }
 
-    // Create new VM
     const vm = await createVM({
       instanceName,
       runtime: bot.runtime,
@@ -53,7 +50,6 @@ export async function deployBot(botId: number) {
       botCode: bot.botCode ?? undefined,
     })
 
-    // Update bot record with VM info
     await db
       .update(bots)
       .set({
@@ -73,7 +69,6 @@ export async function deployBot(botId: number) {
 
     return { success: true, externalIp: vm.externalIp }
   } catch (err: any) {
-    // Mark as error on failure
     await db
       .update(bots)
       .set({ status: "error", updatedAt: new Date() })
@@ -102,7 +97,6 @@ export async function startBotVM(botId: number) {
   try {
     await startVM(bot.gcpInstanceName)
 
-    // Refresh external IP (may change on restart for preemptible instances)
     const ip = await getVMExternalIP(bot.gcpInstanceName)
 
     await db

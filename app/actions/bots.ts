@@ -1,16 +1,16 @@
 "use server"
 
-import { auth } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/server"
 import { db } from "@/lib/db"
 import { bots } from "@/lib/db/schema"
 import { and, desc, eq } from "drizzle-orm"
-import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 
 async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error("Unauthorized")
-  return session.user.id
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error("Unauthorized")
+  return user.id
 }
 
 export async function getBots() {
@@ -25,9 +25,6 @@ export async function createBot(formData: FormData) {
   const botCode = String(formData.get("botCode") ?? "").trim() || null
   if (!name) throw new Error("Le nom du bot est requis")
 
-  const ramLimit =
-    runtime === "Python" ? 512 : 512
-
   await db.insert(bots).values({
     userId,
     name,
@@ -37,7 +34,7 @@ export async function createBot(formData: FormData) {
     plan: "Free",
     cpuUsage: 0,
     ramUsage: 0,
-    ramLimit,
+    ramLimit: 512,
     networkUsage: 0,
     uptimeSeconds: 0,
   })
@@ -54,7 +51,6 @@ export async function updateBotCode(botId: number, code: string) {
 }
 
 export async function toggleBotStatus(id: number) {
-  // This now delegates to VM actions for real GCP management
   const { startBotVM, stopBotVM } = await import("./vms")
   const userId = await getUserId()
   const rows = await db
@@ -73,7 +69,6 @@ export async function toggleBotStatus(id: number) {
 
 export async function deleteBot(id: number) {
   const userId = await getUserId()
-  // Delete the GCP VM first if it exists
   const rows = await db
     .select()
     .from(bots)
